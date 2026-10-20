@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 FlowSync is a course exercise project (LIDR AI4Devs, module 1 "harness engineering"). It is a TypeScript monorepo with two independent npm packages — no root `package.json`, no workspaces:
 
 - `backend/` — AdonisJS 7 JSON API (Lucid ORM on SQLite, VineJS validation, token auth). Already implements signup/login/profile/logout.
-- `frontend/` — React 19 + Vite 8 starter template (still the default Vite page; no router, no UI library, no API client yet).
+- `frontend/` — React 19 + Vite 8 SPA with React Router, Tailwind v4 and shadcn/ui. Implements signup, login and a protected profile page.
 
 The root `README.md` is a generated exercise brief (do not edit by hand). `prompts.md` is a template where the student logs every prompt they launch. Docs and commit messages in this repo are written in Spanish.
 
@@ -46,6 +46,13 @@ npm run format       # prettier --write src (format:check to verify)
 
 Prettier config is `frontend/.prettierrc.json` (no semicolons, single quotes, trailing commas). A `PostToolUse` hook (`.claude/hooks/format-frontend.mjs`) auto-formats any file edited under `frontend/src/`, so don't reformat by hand. No test runner is configured in the frontend.
 
+## Frontend architecture
+
+- `@/*` alias → `frontend/src/*` (set in `vite.config.ts` and both tsconfigs). shadcn components live in `src/components/ui/` and are generated with `npx shadcn@latest add <name>` (config in `components.json`); `cn` comes from shadcn's `cn` package.
+- `src/lib/api.ts` is the only place that calls the backend: it unwraps `{ data }`, throws `ApiError { status, errors }` (status 0 = network failure). Base URL is `VITE_API_URL`, defaulting to `http://localhost:3333/api/v1`.
+- `src/lib/errors.ts` maps `ApiError`s to Spanish UI messages; `src/lib/auth.tsx` (`AuthProvider` / `useAuth`) keeps the token in `localStorage` (`flowsync.token`).
+- Routes (`src/App.tsx`): `/login`, `/signup` (guest only), `/profile` (behind `RequireAuth`); anything else redirects to `/profile`.
+
 ## Project harness (`.claude/`, `.mcp.json`)
 
 - Skills: `/commit` (conventional commit from staged changes) and `/priority-ticket` (pulls the top-priority Jira ticket in «Por hacer», plans it, moves it to «En curso»).
@@ -67,7 +74,7 @@ Prettier config is `frontend/.prettierrc.json` (no semicolons, single quotes, tr
 - **Response shape**: `providers/api_provider.ts` adds `ctx.serialize()`, which wraps the payload in `{ data: ... }`. Controllers return `serialize(SomeTransformer.transform(model))`; transformers (`app/transformers/`) whitelist exposed fields (`UserTransformer` → `id, fullName, email, createdAt, updatedAt, initials`).
 - **Auth**: default guard is `api` (opaque access tokens stored in `auth_access_tokens`, sent as `Authorization: Bearer <token>`). A `web` session guard is also configured but unused by routes. `silent_auth_middleware` runs globally; the named `auth` middleware protects the `account` group.
   - Signup and login both return `{ data: { user, token } }`.
-- **Validation** (`app/validators/user.ts`): signup requires `email`, `password` (8–32 chars) **and `passwordConfirmation`** (must match); `fullName` is optional/nullable; email must be unique. Login takes `email` + `password`. Validation failures return 422 with `{ errors: [{ field, rule, message }] }`; bad credentials (`User.verifyCredentials`) return an `errors` array as well.
+- **Validation** (`app/validators/user.ts`): signup requires `email`, `password` (8–32 chars) **and `passwordConfirmation`** (must match); `fullName` must be present but may be `null` (omitting it is a 422 `required`); email must be unique (422, rule `database.unique`). Login takes `email` + `password`. Validation failures return 422 with `{ errors: [{ field, rule, message }] }`; bad credentials (`User.verifyCredentials`) return **400** `{ errors: [{ message }] }` with no `field`; a missing/invalid token returns 401.
 - **JSON everywhere**: `force_json_response_middleware` forces `Accept: application/json`, so errors are always JSON.
 - **CORS**: all origins allowed in development (`config/cors.ts`), credentials enabled.
 
